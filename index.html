@@ -322,9 +322,14 @@
   .pmAdd{width:100%;border:1.5px dashed var(--line);background:var(--card);color:var(--ink2);border-radius:12px;padding:12px;font-size:14px;margin-top:4px;}
   .pmAdd:active{background:var(--line);}
   .pmPaste{width:100%;border:1px solid var(--line);background:var(--card);color:var(--amber);border-radius:12px;padding:10px;font-size:13px;margin-top:8px;}
+  .bootMsg{position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--ink2);font-size:14px;}
+  .bootMsg .sp{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
+
+<div class="bootMsg" id="bootMsg"><div class="sp"></div><div>正在载入数据…</div></div>
 
 <header>
   <button class="menuBtn" id="menuBtn">☰</button>
@@ -562,27 +567,31 @@ function recTime(d){if(d.createdAt)return fmtDate(d.createdAt);return d.date||""
 function fmtNum(n){n=Number(n)||0;return n.toLocaleString("en-US");}
 function excerptText(d){if(d.note&&d.note.trim())return d.note.trim();const r=d.raw||{};if(d.cat==="角色卡"){return (r.desc||r.pers||(r.greetings&&r.greetings[0])||"").trim();}if(d.cat==="世界书"){const e=(r.entries||[])[0];return e?((e.title?e.title+"：":"")+(e.content||"")).trim():"";}if(PRESET_LIKE.includes(d.cat)){const p=r.preset&&r.preset.prompts&&r.preset.prompts[0];return p?((p.name?p.name+"：":"")+(p.content||"")).trim():"";}if(d.cat==="美化")return (r.css||"").replace(/\s+/g," ").trim();if(TEXT_CATS.includes(d.cat))return (r.content||"").replace(/\s+/g," ").trim();if(d.cat==="正则"){const rx=r.regex;const one=Array.isArray(rx)?rx[0]:rx;return one?((one.scriptName||one.name||"")+" "+(one.findRegex||one.find||"")).trim():"";}return "";}
 
+/* ========== IndexedDB：主数据 + 原图 blob ========== */
 let idb=null;
-function openDB(){return new Promise((res)=>{try{const r=indexedDB.open("tavern_wb_blobs",1);r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains("blobs"))db.createObjectStore("blobs");};r.onsuccess=e=>{idb=e.target.result;res();};r.onerror=()=>res();}catch(e){res();}});}
+function openDB(){return new Promise((res)=>{try{const r=indexedDB.open("tavern_wb_blobs",2);r.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains("blobs"))db.createObjectStore("blobs");if(!db.objectStoreNames.contains("meta"))db.createObjectStore("meta");};r.onsuccess=e=>{idb=e.target.result;res();};r.onerror=()=>res();}catch(e){res();}});}
 function putBlob(id,blob){return new Promise((res)=>{if(!idb)return res();try{const tx=idb.transaction("blobs","readwrite");tx.objectStore("blobs").put(blob,id);tx.oncomplete=()=>res();tx.onerror=()=>res();}catch(e){res();}});}
 function getBlob(id){return new Promise((res)=>{if(!idb)return res(null);try{const tx=idb.transaction("blobs","readonly");const rq=tx.objectStore("blobs").get(id);rq.onsuccess=()=>res(rq.result||null);rq.onerror=()=>res(null);}catch(e){res(null);}});}
 function delBlob(id){return new Promise((res)=>{if(!idb)return res();try{const tx=idb.transaction("blobs","readwrite");tx.objectStore("blobs").delete(id);tx.oncomplete=()=>res();tx.onerror=()=>res();}catch(e){res();}});}
+function metaGet(key){return new Promise((res)=>{if(!idb)return res(null);try{const tx=idb.transaction("meta","readonly");const rq=tx.objectStore("meta").get(key);rq.onsuccess=()=>res(rq.result!=null?rq.result:null);rq.onerror=()=>res(null);}catch(e){res(null);}});}
+function metaPut(key,val){return new Promise((res)=>{if(!idb)return res(false);try{const tx=idb.transaction("meta","readwrite");tx.objectStore("meta").put(val,key);tx.oncomplete=()=>res(true);tx.onerror=()=>res(false);}catch(e){res(false);}});}
 function blobToDataURL(blob){return new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.onerror=()=>r(null);fr.readAsDataURL(blob);});}
 function dataURLToBlob(durl){try{const parts=durl.split(",");const mime=(parts[0].match(/:(.*?);/)||[])[1]||"image/png";const bin=atob(parts[1]);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return new Blob([arr],{type:mime});}catch(e){return null;}}
 
 const KEY="tavern_workbench_v1",PKEY="tavern_profile",BGKEY="tavern_bg_image",VIEWKEY="tavern_view";
-let DB=load(),currentCat="总览",editingId=null,viewingId=null,greetIdx=0;
+const MK_DB="db",MK_PROFILE="profile",MK_BG="bg",MK_THEME="theme",MK_VIEW="view";
+let DB=[],currentCat="总览",editingId=null,viewingId=null,greetIdx=0;
 let sortKey="date_desc",activeTag="",selMode=false,selSet=new Set(),importForceCat=null;
 let favOnly=false,hideNsfw=false;
-let viewMode=localStorage.getItem(VIEWKEY)||"list";
-let profile=loadProfile(),profDraftAvatar=null;
+let viewMode="list";
+let profile={name:"",charName:"",avatar:"",script:""},profDraftAvatar=null;
 let previewMode="light",previewSource="default",fsCssCache="";
 let nsfwReveal=new Set();
 let sheetState={cat:"角色卡",status:"",type:"",imgs:[],origIds:[],done:false,links:[],prompts:[],nsfw:false,members:[]};
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||[];}catch(e){return [];}}
-function save(){localStorage.setItem(KEY,JSON.stringify(DB));}
-function loadProfile(){try{return JSON.parse(localStorage.getItem(PKEY))||{name:"",charName:"",avatar:"",script:""};}catch(e){return {name:"",charName:"",avatar:"",script:""};}}
-function saveProfile(){localStorage.setItem(PKEY,JSON.stringify(profile));}
+let saveTimer=null;
+function save(){/* 异步持久化到 IndexedDB，去抖 */if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(()=>{metaPut(MK_DB,DB);},250);}
+function saveNow(){return metaPut(MK_DB,DB);}
+function saveProfile(){metaPut(MK_PROFILE,profile);}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 function today(){const d=new Date();return d.toISOString().slice(0,10);}
 function esc(s){return (s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -591,24 +600,24 @@ function copyText(t){try{navigator.clipboard.writeText(t);toast("已复制");}ca
 function $(id){return document.getElementById(id);}
 function on(id,ev,fn){const el=$(id);if(el)el.addEventListener(ev,fn);}
 
-function applyTheme(t){document.documentElement.setAttribute("data-theme",t);localStorage.setItem("tavern_theme",t);}
+function applyTheme(t){document.documentElement.setAttribute("data-theme",t);metaPut(MK_THEME,t);}
 function applyBg(durl){if(durl){document.body.style.setProperty("--bg-image",`url('${durl}')`);document.body.classList.add("has-bg");}else{document.body.style.removeProperty("--bg-image");document.body.classList.remove("has-bg");}}
-function loadBg(){try{return localStorage.getItem(BGKEY)||"";}catch(e){return "";}}
 const themeMask=$("themeMask"),themeSheet=$("themeSheet");
-function renderThemeGrid(){const cur=document.documentElement.getAttribute("data-theme");const el=$("themeGrid");el.innerHTML="";THEMES.forEach(t=>{const c=document.createElement("div");c.className="themeCard"+(t.k===cur?" sel":"");c.innerHTML=`<div class="sw">${t.sw.map(s=>`<i style="background:${s}"></i>`).join("")}</div><div class="tn">${t.n}</div>`;c.onclick=()=>{applyTheme(t.k);renderThemeGrid();};el.appendChild(c);});const bg=loadBg();const bp=$("bgPrev");if(bg){bp.style.backgroundImage=`url('${bg}')`;bp.textContent="";}else{bp.style.backgroundImage="";bp.textContent="未设置背景";}}
+let curBg="";
+function renderThemeGrid(){const cur=document.documentElement.getAttribute("data-theme");const el=$("themeGrid");el.innerHTML="";THEMES.forEach(t=>{const c=document.createElement("div");c.className="themeCard"+(t.k===cur?" sel":"");c.innerHTML=`<div class="sw">${t.sw.map(s=>`<i style="background:${s}"></i>`).join("")}</div><div class="tn">${t.n}</div>`;c.onclick=()=>{applyTheme(t.k);renderThemeGrid();};el.appendChild(c);});const bp=$("bgPrev");if(curBg){bp.style.backgroundImage=`url('${curBg}')`;bp.textContent="";}else{bp.style.backgroundImage="";bp.textContent="未设置背景";}}
 function openTheme(){renderThemeGrid();themeMask.classList.add("show");themeSheet.classList.add("show");}
 function closeTheme(){themeMask.classList.remove("show");themeSheet.classList.remove("show");}
 on("themeBtn","click",openTheme);themeMask.addEventListener("click",closeTheme);on("themeClose","click",closeTheme);
 on("bgPick","click",()=>$("bgFile").click());
-on("bgClear","click",()=>{localStorage.removeItem(BGKEY);applyBg("");renderThemeGrid();toast("已清除背景");});
-on("bgFile","change",async function(e){const f=e.target.files[0];if(!f)return;const url=URL.createObjectURL(f);const small=await compressSrc(url,1400);URL.revokeObjectURL(url);if(small){try{localStorage.setItem(BGKEY,small);applyBg(small);renderThemeGrid();toast("背景已设置");}catch(err){toast("背景图太大，换张小图试试");}}this.value="";});
+on("bgClear","click",()=>{curBg="";metaPut(MK_BG,"");applyBg("");renderThemeGrid();toast("已清除背景");});
+on("bgFile","change",async function(e){const f=e.target.files[0];if(!f)return;const url=URL.createObjectURL(f);const small=await compressSrc(url,1400);URL.revokeObjectURL(url);if(small){curBg=small;await metaPut(MK_BG,small);applyBg(small);renderThemeGrid();toast("背景已设置");}this.value="";});
 
 function updateViewBtn(){$("viewBtn").textContent=viewMode==="grid"?"▦":"▤";}
-on("viewBtn","click",function(){viewMode=viewMode==="grid"?"list":"grid";localStorage.setItem(VIEWKEY,viewMode);updateViewBtn();renderContent();});
+on("viewBtn","click",function(){viewMode=viewMode==="grid"?"list":"grid";metaPut(MK_VIEW,viewMode);updateViewBtn();renderContent();});
 
 function renderProfBtn(){const b=$("profBtn");if(profile.avatar){b.innerHTML=`<img src="${profile.avatar}">`;}else{b.textContent="👤";}}
 
-async function refreshStoreBar(){const bar=$("storeBar");if(navigator.storage&&navigator.storage.estimate){try{const est=await navigator.storage.estimate();const used=(est.usage/1048576).toFixed(1);const quota=(est.quota/1048576).toFixed(0);bar.textContent=`已用存储约 ${used} MB / 可用约 ${quota} MB（原图存于本地数据库）`;return;}catch(e){}}bar.textContent="原始高清图存于本地数据库";}
+async function refreshStoreBar(){const bar=$("storeBar");if(navigator.storage&&navigator.storage.estimate){try{const est=await navigator.storage.estimate();const used=(est.usage/1048576).toFixed(1);const quota=(est.quota/1048576).toFixed(0);bar.textContent=`已用约 ${used} MB / 可用约 ${quota} MB · 全部存于本地数据库（IndexedDB）`;return;}catch(e){}}bar.textContent="数据存于本地数据库（IndexedDB）";}
 
 const navMask=$("navMask"),nav=$("nav");
 function openNav(){renderNav();navMask.classList.add("show");nav.classList.add("show");}
@@ -916,15 +925,15 @@ function delImg(i){const oid=sheetState.origIds[i];if(oid)delBlob(oid);sheetStat
 on("fileInput","change",async function(e){const files=[...e.target.files];for(const f of files){if(sheetState.imgs.length>=9)break;const blobId=uid();await putBlob(blobId,f);const url=URL.createObjectURL(f);const thumb=await compressSrc(url);URL.revokeObjectURL(url);if(thumb){sheetState.imgs.push(thumb);sheetState.origIds.push(blobId);renderImgPicker();}else{await delBlob(blobId);}}this.value="";});
 function parseEntriesText(txt){if(!txt||!txt.trim())return[];const blocks=txt.split(/\n\s*\n/);const out=[];blocks.forEach(b=>{const lines=b.split("\n");const head=lines.shift()||"";let title=head,keys=[];if(head.indexOf("|")>=0){const p=head.split("|");title=p[0].trim();keys=p[1].split(/[,，]/).map(x=>x.trim()).filter(Boolean);}const content=lines.join("\n").trim();if(title||content)out.push({title:title.trim(),keys,content});});return out;}
 function buildPromptsFromState(){return (sheetState.prompts||[]).map((p,i)=>{const base=(p._raw&&typeof p._raw==="object")?Object.assign({},p._raw):{};base.identifier=p.identifier||base.identifier||("prompt_"+(i+1));base.name=p.name||"";base.role=p.role||"system";base.content=p.content||"";base.enabled=p.enabled!==false;if(p.depth!==undefined&&p.depth!==""&&!isNaN(parseInt(p.depth)))base.depth=parseInt(p.depth);else delete base.depth;return base;});}
-on("saveBtn","click",function(){const name=$("fName").value.trim();if(!name){alert("请填写名称");return;}const cat=sheetState.cat;let raw={};if(cat==="角色卡"){const oldRaw=(editingId?(DB.find(x=>x.id===editingId)||{}).raw:null)||{};raw={desc:$("fDesc").value,pers:$("fPers").value,scen:$("fScen").value,mesEx:$("fMesEx").value,greetings:$("fGreet").value.split(/\n-{3,}\n/).map(s=>s.trim()).filter(Boolean),qr:($("fQr")?$("fQr").value:""),regexScripts:oldRaw.regexScripts};}else if(cat==="世界书"){raw={entries:parseEntriesText($("fEntries").value)};}else if(cat==="美化"){raw={css:$("fCss").value};}else if(PRESET_LIKE.includes(cat)){const prompts=buildPromptsFromState();const params=cat==="预设"?parseParamsText($("fPresetParams").value):{};const basePreset=(sheetState.preset&&typeof sheetState.preset==="object")?Object.assign({},sheetState.preset):{};const preset=Object.assign({},basePreset,params);preset.prompts=prompts;raw={preset,params};}else if(TEXT_CATS.includes(cat)){raw={content:$("fContent").value};}else{raw={};}let amount=$("fAmount").value.trim();if(cat==="世界书"&&raw.entries)amount=String(raw.entries.length);if(PRESET_LIKE.includes(cat)&&raw.preset&&Array.isArray(raw.preset.prompts))amount=String(raw.preset.prompts.length);if(cat===COLLECT_CAT)amount=String(sheetState.members.filter(id=>DB.some(x=>x.id===id)).length);if(TEXT_CATS.includes(cat)&&raw.content){if(cat==="表情包")amount=String(parseStickers(raw.content).length);else if(cat==="聊天梗")amount=String(raw.content.split(/\n\s*\n+/).map(s=>s.trim()).filter(Boolean).length);else amount=String(raw.content.length);}const old=editingId?DB.find(x=>x.id===editingId):null;const createdAt=old&&old.createdAt?old.createdAt:Date.now();const rec={id:editingId||uid(),cat,name,status:sheetState.status,type:sheetState.type||"",author:$("fAuthor").value.trim(),tags:$("fTags").value.trim(),amount,date:$("fDate").value||today(),note:$("fNote").value.trim(),createdAt,usedAt:old?old.usedAt:0,nsfw:(cat==="角色卡")?!!sheetState.nsfw:false,imgs:cat==="角色卡"?sheetState.imgs.slice(0,9):[],origIds:cat==="角色卡"?sheetState.origIds.slice(0,9):[],done:DONE_CATS.includes(cat)?sheetState.done:false,links:LINK_TARGETS[cat]?sheetState.links.slice():[],members:cat===COLLECT_CAT?sheetState.members.filter(id=>DB.some(x=>x.id===id)):[],raw};if(editingId){const i=DB.findIndex(x=>x.id===editingId);DB[i]=rec;}else{DB.unshift(rec);}save();clearDraft();closeSheet();renderAll();});
+on("saveBtn","click",function(){const name=$("fName").value.trim();if(!name){alert("请填写名称");return;}const cat=sheetState.cat;let raw={};if(cat==="角色卡"){const oldRaw=(editingId?(DB.find(x=>x.id===editingId)||{}).raw:null)||{};raw={desc:$("fDesc").value,pers:$("fPers").value,scen:$("fScen").value,mesEx:$("fMesEx").value,greetings:$("fGreet").value.split(/\n-{3,}\n/).map(s=>s.trim()).filter(Boolean),qr:($("fQr")?$("fQr").value:""),regexScripts:oldRaw.regexScripts};}else if(cat==="世界书"){raw={entries:parseEntriesText($("fEntries").value)};}else if(cat==="美化"){raw={css:$("fCss").value};}else if(PRESET_LIKE.includes(cat)){const prompts=buildPromptsFromState();const params=cat==="预设"?parseParamsText($("fPresetParams").value):{};const basePreset=(sheetState.preset&&typeof sheetState.preset==="object")?Object.assign({},sheetState.preset):{};const preset=Object.assign({},basePreset,params);preset.prompts=prompts;raw={preset,params};}else if(TEXT_CATS.includes(cat)){raw={content:$("fContent").value};}else{raw={};}let amount=$("fAmount").value.trim();if(cat==="世界书"&&raw.entries)amount=String(raw.entries.length);if(PRESET_LIKE.includes(cat)&&raw.preset&&Array.isArray(raw.preset.prompts))amount=String(raw.preset.prompts.length);if(cat===COLLECT_CAT)amount=String(sheetState.members.filter(id=>DB.some(x=>x.id===id)).length);if(TEXT_CATS.includes(cat)&&raw.content){if(cat==="表情包")amount=String(parseStickers(raw.content).length);else if(cat==="聊天梗")amount=String(raw.content.split(/\n\s*\n+/).map(s=>s.trim()).filter(Boolean).length);else amount=String(raw.content.length);}const old=editingId?DB.find(x=>x.id===editingId):null;const createdAt=old&&old.createdAt?old.createdAt:Date.now();const rec={id:editingId||uid(),cat,name,status:sheetState.status,type:sheetState.type||"",author:$("fAuthor").value.trim(),tags:$("fTags").value.trim(),amount,date:$("fDate").value||today(),note:$("fNote").value.trim(),createdAt,usedAt:old?old.usedAt:0,nsfw:(cat==="角色卡")?!!sheetState.nsfw:false,imgs:cat==="角色卡"?sheetState.imgs.slice(0,9):[],origIds:cat==="角色卡"?sheetState.origIds.slice(0,9):[],done:DONE_CATS.includes(cat)?sheetState.done:false,links:LINK_TARGETS[cat]?sheetState.links.slice():[],members:cat===COLLECT_CAT?sheetState.members.filter(id=>DB.some(x=>x.id===id)):[],raw};if(editingId){const i=DB.findIndex(x=>x.id===editingId);DB[i]=rec;}else{DB.unshift(rec);}saveNow().then(()=>{clearDraft();closeSheet();renderAll();toast("已保存");});});
 let delArmed=false;
 on("delBtn","click",function(){const refs=DB.filter(x=>x.id!==editingId&&((x.links||[]).includes(editingId)||(x.members||[]).includes(editingId)));if(!delArmed){this.textContent=refs.length?`被 ${refs.length} 处引用，再次点击确认删除`:"再次点击确认删除";delArmed=true;setTimeout(()=>{this.textContent="删除这条记录";delArmed=false;},3000);return;}const rec=DB.find(x=>x.id===editingId);const linked=(rec&&rec.links)?rec.links.filter(id=>DB.some(x=>x.id===id)):[];let delIds=[editingId];if(linked.length&&confirm(`这张卡关联了 ${linked.length} 项（世界书/正则等）。\n「确定」=连同关联项一起删除\n「取消」=只删这一张`)){delIds=delIds.concat(linked);}delIds.forEach(did=>{const r=DB.find(x=>x.id===did);if(r&&r.origIds)r.origIds.forEach(id=>{if(id)delBlob(id);});});DB=DB.filter(x=>!delIds.includes(x.id));DB.forEach(d=>{if(d.links)d.links=d.links.filter(l=>!delIds.includes(l));if(d.members)d.members=d.members.filter(l=>!delIds.includes(l));});save();closeSheet();renderAll();this.textContent="删除这条记录";delArmed=false;});
 on("cancelBtn","click",closeSheet);mask.addEventListener("click",closeSheet);on("searchBox","input",function(){syncSearchClr();renderContent();});
 
 const DKEY="tavern_draft";
-function saveDraft(){if(editingId)return;const d={name:$("fName").value,author:$("fAuthor").value,tags:$("fTags").value,amount:$("fAmount").value,note:$("fNote").value,cat:sheetState.cat,status:sheetState.status,type:sheetState.type,done:sheetState.done,nsfw:sheetState.nsfw};localStorage.setItem(DKEY,JSON.stringify(d));showDraftTip();}
-function loadDraft(){try{const d=JSON.parse(localStorage.getItem(DKEY));if(d&&(d.name||d.note)){if(confirm("检测到未保存的草稿，是否恢复？")){$("fName").value=d.name||"";$("fAuthor").value=d.author||"";$("fTags").value=d.tags||"";$("fAmount").value=d.amount||"";$("fNote").value=d.note||"";sheetState.cat=d.cat||sheetState.cat;sheetState.status=d.status||sheetState.status;sheetState.type=d.type||"";sheetState.done=!!d.done;sheetState.nsfw=!!d.nsfw;renderSheetChips();}else{clearDraft();}}}catch(e){}}
-function clearDraft(){localStorage.removeItem(DKEY);}
+function saveDraft(){if(editingId)return;try{const d={name:$("fName").value,author:$("fAuthor").value,tags:$("fTags").value,amount:$("fAmount").value,note:$("fNote").value,cat:sheetState.cat,status:sheetState.status,type:sheetState.type,done:sheetState.done,nsfw:sheetState.nsfw};metaPut(DKEY,d);showDraftTip();}catch(e){}}
+async function loadDraft(){try{const d=await metaGet(DKEY);if(d&&(d.name||d.note)){if(confirm("检测到未保存的草稿，是否恢复？")){$("fName").value=d.name||"";$("fAuthor").value=d.author||"";$("fTags").value=d.tags||"";$("fAmount").value=d.amount||"";$("fNote").value=d.note||"";sheetState.cat=d.cat||sheetState.cat;sheetState.status=d.status||sheetState.status;sheetState.type=d.type||"";sheetState.done=!!d.done;sheetState.nsfw=!!d.nsfw;renderSheetChips();}else{clearDraft();}}}catch(e){}}
+function clearDraft(){metaPut(DKEY,null);}
 let draftTimer;function showDraftTip(){const el=$("draftTip");el.textContent="已自动保存草稿";clearTimeout(draftTimer);draftTimer=setTimeout(()=>el.textContent="",1500);}
 function clearDraftTip(){$("draftTip").textContent="";}
 ["fName","fAuthor","fTags","fAmount","fNote"].forEach(id=>{on(id,"input",saveDraft);});
@@ -970,48 +979,41 @@ importInput.onchange=async function(e){const files=[...e.target.files];if(!files
     if(o===null){if(isCssText(text)){DB.unshift(cssToRecord(text,fname));added++;}else{errs++;}continue;}
     if(o.collection&&Array.isArray(o.data)){added+=importCollection(o);}else if(isBundle(o)){added+=importBundle(o);}else if(isBackup(o)){backupFound=true;}else if(isSingle(o)){DB.unshift(singleToRecord(o));added++;}else if(isChara(o)){added+=addCharaWithBook(o,null,null);}else if(isLorebook(o)){DB.unshift(loreToRecord(o));added++;}else if(isPreset(o)){DB.unshift(presetToRecord(o,fname));added++;}else if(extractCss(o)){DB.unshift(cssToRecord(extractCss(o),fname));added++;}else{errs++;}
   }catch(err){errs++;}}
-  save();renderAll();this.value="";let msg="导入完成";if(added)msg+=` · 新增 ${added} 条`;if(errs)msg+=` · ${errs} 个未识别`;if(backupFound)msg+=" · 备份文件请用右上角「备份→恢复」";toast(msg);};
+  await saveNow();renderAll();this.value="";let msg="导入完成";if(added)msg+=` · 新增 ${added} 条`;if(errs)msg+=` · ${errs} 个未识别`;if(backupFound)msg+=" · 备份文件请用右上角「备份→恢复」";toast(msg);};
 
 const restoreInput=document.createElement("input");restoreInput.type="file";restoreInput.accept=".json,application/json";restoreInput.style.display="none";document.body.appendChild(restoreInput);
-restoreInput.onchange=async function(e){const f=e.target.files[0];if(!f){return;}try{const text=await f.text();const o=JSON.parse(text);if(!isBackup(o)){alert("这不是本工具导出的整库备份文件。\n如果想导入角色卡/世界书/预设，请用 ➕ → 导入文件。");this.value="";return;}if(o.blobs){for(const id in o.blobs){const b=dataURLToBlob(o.blobs[id]);if(b)await putBlob(id,b);}}if(o.profile&&typeof o.profile==="object"){if(confirm("备份里含个人资料，是否一起恢复？")){profile=o.profile;saveProfile();renderProfBtn();}}const incoming=Array.isArray(o)?o:o.data;const clean=(incoming||[]).filter(x=>x&&x.name&&x.cat).map(x=>({id:x.id||uid(),cat:x.cat,name:x.name,status:x.status||"",type:x.type||"",author:x.author||"",tags:x.tags||"",amount:x.amount||"",date:x.date||today(),createdAt:x.createdAt||(x.date?Date.parse(x.date):Date.now())||Date.now(),usedAt:x.usedAt||0,nsfw:!!x.nsfw,note:x.note||"",imgs:Array.isArray(x.imgs)?x.imgs.slice(0,9):[],origIds:Array.isArray(x.origIds)?x.origIds.slice(0,9):[],done:!!x.done,links:Array.isArray(x.links)?x.links.slice():[],members:Array.isArray(x.members)?x.members.slice():[],raw:x.raw||{}}));if(!clean.length){alert("备份文件里没有有效记录");this.value="";return;}const merge=confirm(`备份含 ${clean.length} 条。\n\n「确定」=合并（保留现有 ${DB.length} 条）\n「取消」=覆盖（清空现有，只保留备份）`);if(merge){const map={};DB.forEach(d=>map[d.id]=d);clean.forEach(d=>map[d.id]=d);DB=Object.values(map);}else{if(!confirm("确认覆盖全部现有数据？不可撤销")){this.value="";return;}DB=clean;}save();renderAll();toast("恢复完成，当前共 "+DB.length+" 条");}catch(err){alert("恢复失败：文件不是有效的备份 JSON");}this.value="";};
+restoreInput.onchange=async function(e){const f=e.target.files[0];if(!f){return;}try{const text=await f.text();const o=JSON.parse(text);if(!isBackup(o)){alert("这不是本工具导出的整库备份文件。\n如果想导入角色卡/世界书/预设，请用 ➕ → 导入文件。");this.value="";return;}if(o.blobs){for(const id in o.blobs){const b=dataURLToBlob(o.blobs[id]);if(b)await putBlob(id,b);}}if(o.profile&&typeof o.profile==="object"){if(confirm("备份里含个人资料，是否一起恢复？")){profile=o.profile;saveProfile();renderProfBtn();}}const incoming=Array.isArray(o)?o:o.data;const clean=(incoming||[]).filter(x=>x&&x.name&&x.cat).map(x=>({id:x.id||uid(),cat:x.cat,name:x.name,status:x.status||"",type:x.type||"",author:x.author||"",tags:x.tags||"",amount:x.amount||"",date:x.date||today(),createdAt:x.createdAt||(x.date?Date.parse(x.date):Date.now())||Date.now(),usedAt:x.usedAt||0,nsfw:!!x.nsfw,note:x.note||"",imgs:Array.isArray(x.imgs)?x.imgs.slice(0,9):[],origIds:Array.isArray(x.origIds)?x.origIds.slice(0,9):[],done:!!x.done,links:Array.isArray(x.links)?x.links.slice():[],members:Array.isArray(x.members)?x.members.slice():[],raw:x.raw||{}}));if(!clean.length){alert("备份文件里没有有效记录");this.value="";return;}const merge=confirm(`备份含 ${clean.length} 条。\n\n「确定」=合并（保留现有 ${DB.length} 条）\n「取消」=覆盖（清空现有，只保留备份）`);if(merge){const map={};DB.forEach(d=>map[d.id]=d);clean.forEach(d=>map[d.id]=d);DB=Object.values(map);}else{if(!confirm("确认覆盖全部现有数据？不可撤销")){this.value="";return;}DB=clean;}await saveNow();renderAll();toast("恢复完成，当前共 "+DB.length+" 条");}catch(err){alert("恢复失败：文件不是有效的备份 JSON");}this.value="";};
 
-(async function(){await openDB();applyTheme(localStorage.getItem("tavern_theme")||"paper");applyBg(loadBg());updateViewBtn();renderProfBtn();if(DB.length===0){const wbId=uid(),rxId=uid(),fragId=uid(),jbId=uid(),charId=uid(),preId=uid(),cssId=uid(),now=Date.now();DB=[{id:charId,cat:"角色卡",name:"示例·温柔店长",status:"使用中",author:"某作者",tags:"日常,治愈,中文",amount:"1200",date:today(),createdAt:now,usedAt:now,nsfw:false,note:"v2 版本 · 她在小镇咖啡馆等你",imgs:[],origIds:[],done:false,links:[wbId,rxId],members:[],raw:{desc:"一位在小镇咖啡馆工作的温柔店长，擅长倾听。",pers:"温柔、细心、略带慵懒。",scen:"傍晚的咖啡馆，只剩你们两人。",mesEx:"",greetings:["*推开门，风铃轻响。店长抬起头朝你微笑。*「今天也辛苦了，老位置？」","*外面下起了雨。*「哎呀，淋湿了吧？」*她递来一条毛巾。*「先擦擦，我给你煮杯热的。」"]}},{id:wbId,cat:"世界书",name:"奇幻大陆设定集",status:"已绑定",author:"",tags:"世界观,奇幻",amount:"3",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"",imgs:[],origIds:[],done:false,links:[],members:[],raw:{entries:[{title:"魔法体系",keys:["魔法","咒语"],content:"分为元素、神圣、暗影三系，施法消耗精神力。"},{title:"王国·艾尔多",keys:["艾尔多","王国"],content:"大陆中部最强盛的人类王国，首都白石城。"},{title:"货币",keys:["金币","货币"],content:"1金=100银=10000铜。"}]}},{id:preId,cat:"预设",name:"Claude 中文润色预设",status:"使用中",author:"社区",tags:"中文,润色",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"自然流畅的中文输出",imgs:[],origIds:[],done:false,links:[rxId,fragId,jbId],members:[],raw:{preset:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95,prompts:[{identifier:"main",name:"主提示",role:"system",content:"你是一个擅长中文创作的助手，语言自然流畅。",enabled:true}]},params:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95}}},{id:fragId,cat:"预设片段",name:"通用·格式要求片段",status:"常用",type:"格式要求",author:"",tags:"格式,通用",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"可缝合进任何预设",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"fmt",name:"输出格式",role:"system",content:"对话用「」包裹，动作与旁白用 * * 包裹，保持段落清晰。",enabled:true}]},params:{}}},{id:jbId,cat:"破限越狱",name:"示例·通用破限",status:"常用",type:"主破限",author:"",tags:"破限",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"示例占位，可替换为你自己的内容",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"jb",name:"主破限",role:"system",content:"（示例占位内容，请替换）",enabled:true}]},params:{}}},{id:cssId,cat:"美化",name:"暗色纸质主题",status:"已启用",type:"CSS 主题",author:"",tags:"暗色,护眼",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"护眼暗色，琥珀色标题",imgs:[],origIds:[],done:true,links:[],members:[],raw:{css:"#chat{background:#15110c;}\n.mes{border-bottom:1px solid #3a2f22;}\n.name_text{color:#e0a11b!important;}\n.mes_text{color:#e8ddc9;font-size:15px;}\n.mes_text em{color:#d4627f;}\n.mes_text q{color:#9ad;}"}},{id:rxId,cat:"正则",name:"去除冗余旁白",status:"已启用",author:"",tags:"清理",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"清理 AI 多余的环境描写",imgs:[],origIds:[],done:true,links:[],members:[]},{id:uid(),cat:COLLECT_CAT,name:"示例合集·温柔店长全套",status:"进行中",author:"",tags:"合集",amount:"4",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"把角色卡、世界书、预设、美化打包在一起",imgs:[],origIds:[],done:false,links:[],members:[charId,wbId,preId,cssId],raw:{}}];save();}renderAll();})();
-</script>
-<script>
-(function(){
-  /* 存储健康自检 */
-  var ok=false;try{localStorage.setItem("__t","1");ok=(localStorage.getItem("__t")==="1");localStorage.removeItem("__t");}catch(e){ok=false;}
-  if(!ok){
-    var bar=document.createElement("div");
-    bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:200;background:#c0392b;color:#fff;font-size:12.5px;padding:8px 12px;text-align:center;line-height:1.5;";
-    bar.innerHTML="⚠ 这个浏览器会清除本应用数据，无法自动保存。请用下方「💾存档」存成文件，下次用「📂读档」载入。";
-    document.body.appendChild(bar);
-    document.body.style.paddingTop="44px";
-  }
-  /* 悬浮一键存档 / 读档 */
-  var box=document.createElement("div");
-  box.style.cssText="position:fixed;left:14px;bottom:20px;z-index:46;display:flex;gap:8px;";
-  box.innerHTML='<button id="qsSave" style="border:none;border-radius:999px;padding:11px 15px;font-size:13px;font-weight:600;color:#fff;background:#5a8f5a;box-shadow:0 4px 12px rgba(0,0,0,.2);">💾 存档</button>'
-              +'<button id="qsLoad" style="border:none;border-radius:999px;padding:11px 15px;font-size:13px;font-weight:600;color:#fff;background:#5a7a9f;box-shadow:0 4px 12px rgba(0,0,0,.2);">📂 读档</button>';
-  document.body.appendChild(box);
-
-  async function quickSave(){
+/* ========== 启动：IndexedDB 加载 + 自动迁移旧 localStorage ========== */
+(async function(){
+  await openDB();
+  // 载入设置
+  const th=await metaGet(MK_THEME);applyTheme(th||"paper");
+  curBg=(await metaGet(MK_BG))||"";applyBg(curBg);
+  viewMode=(await metaGet(MK_VIEW))||"list";updateViewBtn();
+  const pf=await metaGet(MK_PROFILE);if(pf&&typeof pf==="object")profile=pf;
+  renderProfBtn();
+  // 载入主数据
+  let data=await metaGet(MK_DB);
+  // 旧版迁移：若 IndexedDB 没有，但 localStorage 有，搬过来
+  if(!Array.isArray(data)){
     try{
-      if(typeof DB==="undefined"){alert("数据未就绪，稍等一下再试");return;}
-      var payload={app:"tavern_workbench",version:5,exportedAt:new Date().toISOString(),data:DB,profile:(typeof profile!=="undefined"?profile:{})};
-      payload.blobs={};
-      var ids=new Set();
-      DB.forEach(function(d){(d.origIds||[]).forEach(function(id){if(id)ids.add(id);});});
-      for(const id of ids){try{var b=await getBlob(id);if(b){var du=await blobToDataURL(b);if(du)payload.blobs[id]=du;}}catch(e){}}
-      var d=new Date();
-      downloadText(JSON.stringify(payload),"酒馆存档_"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"_"+String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0")+".json","application/json");
-      if(typeof toast==="function")toast("已存档到文件（含原图）");
-    }catch(e){alert("存档失败："+e.message);}
+      const old=JSON.parse(localStorage.getItem(KEY)||"null");
+      if(Array.isArray(old)&&old.length){data=old;await metaPut(MK_DB,old);try{localStorage.removeItem(KEY);}catch(e){}}
+    }catch(e){}
+    try{const op=JSON.parse(localStorage.getItem(PKEY)||"null");if(op&&typeof op==="object"&&!pf){profile=op;saveProfile();renderProfBtn();try{localStorage.removeItem(PKEY);}catch(e){}}}catch(e){}
+    try{const ot=localStorage.getItem("tavern_theme");if(ot&&!th){applyTheme(ot);try{localStorage.removeItem("tavern_theme");}catch(e){}}}catch(e){}
+    try{const ob=localStorage.getItem(BGKEY);if(ob&&!curBg){curBg=ob;await metaPut(MK_BG,ob);applyBg(ob);try{localStorage.removeItem(BGKEY);}catch(e){}}}catch(e){}
   }
-  function quickLoad(){try{if(typeof restoreInput!=="undefined"&&restoreInput.click)restoreInput.click();else alert("读档入口未就绪");}catch(e){alert("读档失败");}}
-
-  document.getElementById("qsSave").addEventListener("click",quickSave);
-  document.getElementById("qsLoad").addEventListener("click",quickLoad);
+  if(Array.isArray(data))DB=data;
+  // 首次空库：放示例
+  if(DB.length===0){
+    const wbId=uid(),rxId=uid(),fragId=uid(),jbId=uid(),charId=uid(),preId=uid(),cssId=uid(),now=Date.now();
+    DB=[{id:charId,cat:"角色卡",name:"示例·温柔店长",status:"使用中",author:"某作者",tags:"日常,治愈,中文",amount:"1200",date:today(),createdAt:now,usedAt:now,nsfw:false,note:"v2 版本 · 她在小镇咖啡馆等你",imgs:[],origIds:[],done:false,links:[wbId,rxId],members:[],raw:{desc:"一位在小镇咖啡馆工作的温柔店长，擅长倾听。",pers:"温柔、细心、略带慵懒。",scen:"傍晚的咖啡馆，只剩你们两人。",mesEx:"",greetings:["*推开门，风铃轻响。店长抬起头朝你微笑。*「今天也辛苦了，老位置？」","*外面下起了雨。*「哎呀，淋湿了吧？」*她递来一条毛巾。*「先擦擦，我给你煮杯热的。」"]}},{id:wbId,cat:"世界书",name:"奇幻大陆设定集",status:"已绑定",author:"",tags:"世界观,奇幻",amount:"3",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"",imgs:[],origIds:[],done:false,links:[],members:[],raw:{entries:[{title:"魔法体系",keys:["魔法","咒语"],content:"分为元素、神圣、暗影三系，施法消耗精神力。"},{title:"王国·艾尔多",keys:["艾尔多","王国"],content:"大陆中部最强盛的人类王国，首都白石城。"},{title:"货币",keys:["金币","货币"],content:"1金=100银=10000铜。"}]}},{id:preId,cat:"预设",name:"Claude 中文润色预设",status:"使用中",author:"社区",tags:"中文,润色",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"自然流畅的中文输出",imgs:[],origIds:[],done:false,links:[rxId,fragId,jbId],members:[],raw:{preset:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95,prompts:[{identifier:"main",name:"主提示",role:"system",content:"你是一个擅长中文创作的助手，语言自然流畅。",enabled:true}]},params:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95}}},{id:fragId,cat:"预设片段",name:"通用·格式要求片段",status:"常用",type:"格式要求",author:"",tags:"格式,通用",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"可缝合进任何预设",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"fmt",name:"输出格式",role:"system",content:"对话用「」包裹，动作与旁白用 * * 包裹，保持段落清晰。",enabled:true}]},params:{}}},{id:jbId,cat:"破限越狱",name:"示例·通用破限",status:"常用",type:"主破限",author:"",tags:"破限",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"示例占位，可替换为你自己的内容",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"jb",name:"主破限",role:"system",content:"（示例占位内容，请替换）",enabled:true}]},params:{}}},{id:cssId,cat:"美化",name:"暗色纸质主题",status:"已启用",type:"CSS 主题",author:"",tags:"暗色,护眼",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"护眼暗色，琥珀色标题",imgs:[],origIds:[],done:true,links:[],members:[],raw:{css:"#chat{background:#15110c;}\n.mes{border-bottom:1px solid #3a2f22;}\n.name_text{color:#e0a11b!important;}\n.mes_text{color:#e8ddc9;font-size:15px;}\n.mes_text em{color:#d4627f;}\n.mes_text q{color:#9ad;}"}},{id:rxId,cat:"正则",name:"去除冗余旁白",status:"已启用",author:"",tags:"清理",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"清理 AI 多余的环境描写",imgs:[],origIds:[],done:true,links:[],members:[]},{id:uid(),cat:COLLECT_CAT,name:"示例合集·温柔店长全套",status:"进行中",author:"",tags:"合集",amount:"4",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"把角色卡、世界书、预设、美化打包在一起",imgs:[],origIds:[],done:false,links:[],members:[charId,wbId,preId,cssId],raw:{}}];
+    await metaPut(MK_DB,DB);
+  }
+  renderAll();
+  var bm=document.getElementById("bootMsg");if(bm)bm.style.display="none";
 })();
 </script>
 </body>
