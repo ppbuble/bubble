@@ -977,5 +977,42 @@ restoreInput.onchange=async function(e){const f=e.target.files[0];if(!f){return;
 
 (async function(){await openDB();applyTheme(localStorage.getItem("tavern_theme")||"paper");applyBg(loadBg());updateViewBtn();renderProfBtn();if(DB.length===0){const wbId=uid(),rxId=uid(),fragId=uid(),jbId=uid(),charId=uid(),preId=uid(),cssId=uid(),now=Date.now();DB=[{id:charId,cat:"角色卡",name:"示例·温柔店长",status:"使用中",author:"某作者",tags:"日常,治愈,中文",amount:"1200",date:today(),createdAt:now,usedAt:now,nsfw:false,note:"v2 版本 · 她在小镇咖啡馆等你",imgs:[],origIds:[],done:false,links:[wbId,rxId],members:[],raw:{desc:"一位在小镇咖啡馆工作的温柔店长，擅长倾听。",pers:"温柔、细心、略带慵懒。",scen:"傍晚的咖啡馆，只剩你们两人。",mesEx:"",greetings:["*推开门，风铃轻响。店长抬起头朝你微笑。*「今天也辛苦了，老位置？」","*外面下起了雨。*「哎呀，淋湿了吧？」*她递来一条毛巾。*「先擦擦，我给你煮杯热的。」"]}},{id:wbId,cat:"世界书",name:"奇幻大陆设定集",status:"已绑定",author:"",tags:"世界观,奇幻",amount:"3",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"",imgs:[],origIds:[],done:false,links:[],members:[],raw:{entries:[{title:"魔法体系",keys:["魔法","咒语"],content:"分为元素、神圣、暗影三系，施法消耗精神力。"},{title:"王国·艾尔多",keys:["艾尔多","王国"],content:"大陆中部最强盛的人类王国，首都白石城。"},{title:"货币",keys:["金币","货币"],content:"1金=100银=10000铜。"}]}},{id:preId,cat:"预设",name:"Claude 中文润色预设",status:"使用中",author:"社区",tags:"中文,润色",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"自然流畅的中文输出",imgs:[],origIds:[],done:false,links:[rxId,fragId,jbId],members:[],raw:{preset:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95,prompts:[{identifier:"main",name:"主提示",role:"system",content:"你是一个擅长中文创作的助手，语言自然流畅。",enabled:true}]},params:{chat_completion_source:"claude",claude_model:"claude-3-opus",temperature:1,top_p:0.95}}},{id:fragId,cat:"预设片段",name:"通用·格式要求片段",status:"常用",type:"格式要求",author:"",tags:"格式,通用",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"可缝合进任何预设",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"fmt",name:"输出格式",role:"system",content:"对话用「」包裹，动作与旁白用 * * 包裹，保持段落清晰。",enabled:true}]},params:{}}},{id:jbId,cat:"破限越狱",name:"示例·通用破限",status:"常用",type:"主破限",author:"",tags:"破限",amount:"1",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"示例占位，可替换为你自己的内容",imgs:[],origIds:[],done:false,links:[],members:[],raw:{preset:{prompts:[{identifier:"jb",name:"主破限",role:"system",content:"（示例占位内容，请替换）",enabled:true}]},params:{}}},{id:cssId,cat:"美化",name:"暗色纸质主题",status:"已启用",type:"CSS 主题",author:"",tags:"暗色,护眼",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"护眼暗色，琥珀色标题",imgs:[],origIds:[],done:true,links:[],members:[],raw:{css:"#chat{background:#15110c;}\n.mes{border-bottom:1px solid #3a2f22;}\n.name_text{color:#e0a11b!important;}\n.mes_text{color:#e8ddc9;font-size:15px;}\n.mes_text em{color:#d4627f;}\n.mes_text q{color:#9ad;}"}},{id:rxId,cat:"正则",name:"去除冗余旁白",status:"已启用",author:"",tags:"清理",amount:"",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"清理 AI 多余的环境描写",imgs:[],origIds:[],done:true,links:[],members:[]},{id:uid(),cat:COLLECT_CAT,name:"示例合集·温柔店长全套",status:"进行中",author:"",tags:"合集",amount:"4",date:today(),createdAt:now,usedAt:0,nsfw:false,note:"把角色卡、世界书、预设、美化打包在一起",imgs:[],origIds:[],done:false,links:[],members:[charId,wbId,preId,cssId],raw:{}}];save();}renderAll();})();
 </script>
+<script>
+(function(){
+  /* 存储健康自检 */
+  var ok=false;try{localStorage.setItem("__t","1");ok=(localStorage.getItem("__t")==="1");localStorage.removeItem("__t");}catch(e){ok=false;}
+  if(!ok){
+    var bar=document.createElement("div");
+    bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:200;background:#c0392b;color:#fff;font-size:12.5px;padding:8px 12px;text-align:center;line-height:1.5;";
+    bar.innerHTML="⚠ 这个浏览器会清除本应用数据，无法自动保存。请用下方「💾存档」存成文件，下次用「📂读档」载入。";
+    document.body.appendChild(bar);
+    document.body.style.paddingTop="44px";
+  }
+  /* 悬浮一键存档 / 读档 */
+  var box=document.createElement("div");
+  box.style.cssText="position:fixed;left:14px;bottom:20px;z-index:46;display:flex;gap:8px;";
+  box.innerHTML='<button id="qsSave" style="border:none;border-radius:999px;padding:11px 15px;font-size:13px;font-weight:600;color:#fff;background:#5a8f5a;box-shadow:0 4px 12px rgba(0,0,0,.2);">💾 存档</button>'
+              +'<button id="qsLoad" style="border:none;border-radius:999px;padding:11px 15px;font-size:13px;font-weight:600;color:#fff;background:#5a7a9f;box-shadow:0 4px 12px rgba(0,0,0,.2);">📂 读档</button>';
+  document.body.appendChild(box);
+
+  async function quickSave(){
+    try{
+      if(typeof DB==="undefined"){alert("数据未就绪，稍等一下再试");return;}
+      var payload={app:"tavern_workbench",version:5,exportedAt:new Date().toISOString(),data:DB,profile:(typeof profile!=="undefined"?profile:{})};
+      payload.blobs={};
+      var ids=new Set();
+      DB.forEach(function(d){(d.origIds||[]).forEach(function(id){if(id)ids.add(id);});});
+      for(const id of ids){try{var b=await getBlob(id);if(b){var du=await blobToDataURL(b);if(du)payload.blobs[id]=du;}}catch(e){}}
+      var d=new Date();
+      downloadText(JSON.stringify(payload),"酒馆存档_"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"_"+String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0")+".json","application/json");
+      if(typeof toast==="function")toast("已存档到文件（含原图）");
+    }catch(e){alert("存档失败："+e.message);}
+  }
+  function quickLoad(){try{if(typeof restoreInput!=="undefined"&&restoreInput.click)restoreInput.click();else alert("读档入口未就绪");}catch(e){alert("读档失败");}}
+
+  document.getElementById("qsSave").addEventListener("click",quickSave);
+  document.getElementById("qsLoad").addEventListener("click",quickLoad);
+})();
+</script>
 </body>
 </html>
