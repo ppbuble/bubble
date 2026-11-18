@@ -1016,5 +1016,79 @@ restoreInput.onchange=async function(e){const f=e.target.files[0];if(!f){return;
   var bm=document.getElementById("bootMsg");if(bm)bm.style.display="none";
 })();
 </script>
+<style>
+  .linkFold{border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .linkFold .lfHead{display:flex;align-items:center;gap:8px;padding:11px 12px;background:var(--phch);cursor:pointer;font-size:13.5px;color:var(--ink);}
+  .linkFold .lfHead .lfn{flex:1;min-width:0;font-weight:600;}
+  .linkFold .lfHead .lfc{font-size:11px;color:var(--ink3);}
+  .linkFold .lfHead .lfa{transition:transform .2s;color:var(--ink3);flex:0 0 auto;}
+  .linkFold.open .lfHead .lfa{transform:rotate(180deg);}
+  .linkFold .lfBody{max-height:0;overflow:hidden;transition:max-height .25s;}
+  .linkFold.open .lfBody{max-height:1200px;overflow-y:auto;}
+  .linkFold .lfInner{padding:10px 12px;}
+  .linkFold .lfSearch{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 11px;font-size:13px;color:var(--ink);outline:none;margin-bottom:10px;}
+  .linkFold .lfGroup{margin-bottom:10px;}
+  .linkFold .lfGh{font-size:12px;color:var(--ink2);font-weight:600;margin-bottom:6px;}
+  .linkFold .lfList{display:flex;flex-wrap:wrap;gap:8px;}
+  .linkFold .lfPick{padding:7px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-size:13px;color:var(--ink2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .linkFold .lfPick.sel{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600;}
+  .linkFold .lfEmpty{font-size:12px;color:var(--ink3);padding:4px 0;}
+</style>
+<script>
+(function(){
+  // 用折叠+搜索版覆盖原 renderLinkArea，已关联项排最前并高亮
+  let lfState={};           // 每个目标分类的搜索词
+  let lfOpenAll=false;      // 折叠展开状态（整块）
+  function build(){
+    const wrap=$("wrapLinks");
+    const targets=LINK_TARGETS[sheetState.cat];
+    if(!targets){wrap.style.display="none";return;}
+    wrap.style.display="block";
+    const area=$("linkArea");
+    const selCount=(sheetState.links||[]).filter(id=>DB.some(x=>x.id===id)).length;
+    let inner="";
+    targets.forEach(tc=>{
+      const kw=(lfState[tc]||"").trim().toLowerCase();
+      let cands=DB.filter(d=>d.cat===tc&&d.id!==editingId);
+      // 已关联的排最前
+      cands.sort((a,b)=>{
+        const sa=sheetState.links.includes(a.id)?0:1, sb=sheetState.links.includes(b.id)?0:1;
+        if(sa!==sb)return sa-sb;
+        return (a.name||"").localeCompare(b.name||"","zh");
+      });
+      if(kw)cands=cands.filter(d=>(d.name||"").toLowerCase().includes(kw));
+      inner+=`<div class="lfGroup"><div class="lfGh">${tc}</div>`;
+      inner+=`<input class="lfSearch" data-tc="${tc}" placeholder="搜索${tc}…" value="${esc(lfState[tc]||"")}">`;
+      if(!cands.length){inner+=`<div class="lfEmpty">${kw?"没有匹配的"+tc:"还没有"+tc}</div>`;}
+      else{
+        inner+='<div class="lfList">';
+        cands.slice(0,200).forEach(c=>{
+          const sel=sheetState.links.includes(c.id)?" sel":"";
+          inner+=`<div class="lfPick${sel}" data-id="${c.id}">${sel?"✓ ":""}${esc(c.name)||"待命名"}</div>`;
+        });
+        inner+="</div>";
+      }
+      inner+="</div>";
+    });
+    area.innerHTML=`<div class="linkFold${lfOpenAll?' open':''}" id="lfBox">
+      <div class="lfHead" id="lfHead"><span class="lfn">关联资料</span><span class="lfc">已选 ${selCount} · 点击${lfOpenAll?'收起':'展开'}</span><span class="lfa">▾</span></div>
+      <div class="lfBody"><div class="lfInner">${inner}</div></div>
+    </div>`;
+    area.querySelector("#lfHead").onclick=()=>{lfOpenAll=!lfOpenAll;build();};
+    area.querySelectorAll(".lfSearch").forEach(ip=>{
+      ip.addEventListener("input",function(){lfState[this.getAttribute("data-tc")]=this.value;const box=area.querySelector("#lfBox");build();const ni=area.querySelector('.lfSearch[data-tc="'+this.getAttribute("data-tc")+'"]');if(ni){ni.focus();ni.setSelectionRange(ni.value.length,ni.value.length);}});
+    });
+    area.querySelectorAll(".lfPick").forEach(el=>{
+      el.onclick=()=>{const id=el.getAttribute("data-id");if(sheetState.links.includes(id))sheetState.links=sheetState.links.filter(x=>x!==id);else sheetState.links.push(id);build();};
+    });
+  }
+  // 覆盖全局函数
+  window.renderLinkArea=build;
+  // 每次打开编辑面板时重置展开/搜索状态
+  const _openEdit=window.openEdit, _openAdd=window.openAdd;
+  if(typeof _openEdit==="function"){window.openEdit=function(id){lfOpenAll=false;lfState={};return _openEdit(id);};}
+  if(typeof _openAdd==="function"){window.openAdd=function(){lfOpenAll=false;lfState={};return _openAdd();};}
+})();
+</script>
 </body>
 </html>
